@@ -5,6 +5,9 @@ import sys
 def extract_calculation_info(content: str) -> dict:
     """Extract calculation type information from Dalton output.
 
+    TODO:
+        Extraction of print level, so we can quit gracefully if too low for C6 output
+
     Args:
         content (str): The content of the Dalton output file
 

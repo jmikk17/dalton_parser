@@ -2,3 +2,5 @@
 c6_*.out
 c6_*.txt
 *.json
+*.orient1
+*.orient2

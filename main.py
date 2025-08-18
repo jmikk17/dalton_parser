@@ -80,19 +80,22 @@ def parse_imaginary_data(content: str, output_file: str) -> dict:
     """
     imaginary_dict = {}
     wave_function = parse_calculation.extract_wave_function_type(content)
+    calc_info = parse_calculation.extract_calculation_info(content)
+    print(calc_info["atomic_moment_order"])
     if not wave_function:
         sys.exit("Error: No wave function type found")
     if wave_function["wave_function"] != "CC":
         # This requires a min print level of 5 in the Dalton input file
         imaginary_dict = parse_properties.extract_imaginary(content)
     elif wave_function["wave_function"] == "CC":
+        sys.exit("Error: C6 data extraction is not supported for CC wave functions yet")
         imaginary_dict = parse_properties.pade_approx(content)
     if not imaginary_dict:
         sys.exit("Error: No C6 data found")
 
     labels = parse_coords.extract_coordinates(content, label_only=True)
 
-    auxil.write_c6(imaginary_dict, labels, output_file)
+    auxil.write_c6(imaginary_dict, labels, calc_info["atomic_moment_order"], output_file)
 
 
 def main() -> None:

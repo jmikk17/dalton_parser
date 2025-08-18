@@ -94,7 +94,7 @@ def get_file_names(args: argparse.Namespace) -> tuple[str, str]:
         if args.parse or args.all:
             args.output = path.with_suffix(".json")
         elif args.c6:
-            args.output = path.with_suffix(".orient.txt")
+            args.output = path.with_suffix(".orient")
         elif args.alpha:
             args.output = path.with_suffix(".alpha.json")
 
@@ -145,7 +145,7 @@ def write_file(file_path: str, content: dict) -> None:
         sys.exit(f"Error writing file: {e}")
 
 
-def write_c6(c6_dict: dict, labels: list, output_file: str = "c6_tmp.txt") -> None:
+def write_c6(c6_dict: dict, labels: list, atomic_moment_order: int, output_file: str = "c6_tmp.txt") -> None:
     """Write the C6 data in Orient format.
 
     Args:
@@ -161,7 +161,10 @@ def write_c6(c6_dict: dict, labels: list, output_file: str = "c6_tmp.txt") -> No
 
     sorted_frequencies = sorted(all_frequencies, reverse=True)
 
-    with Path(output_file).open("w") as file:
+    output_file1 = str(output_file).replace(".orient", ".orient1")
+    output_file2 = str(output_file).replace(".orient", ".orient2")
+
+    with Path(output_file1).open("w") as file, Path(output_file2).open("w") as file2:
         for freq in sorted_frequencies:
             for key, freq_data in c6_dict.items():
                 idx = key.split("_")
@@ -182,38 +185,58 @@ def write_c6(c6_dict: dict, labels: list, output_file: str = "c6_tmp.txt") -> No
                             found = True
                             break
 
-                rank = 1
-
                 if found:
                     matrix = freq_data[freq_str]
 
                     freq_formatted = "0.0000000E+00" if freq == 0.0 else f"{freq:.7E}"
 
-                    if rank == 1:
-                        orient_header = (
-                            f"POL  SITE-LABELS  {site1}  {site2}  SITE-INDICES     {idx1}     {idx2}  "
-                            f"RANK  0 :   1   BY     0 :   1   FREQ2  {freq_formatted}  CARTSPHER S"
-                        )
-                        file.write(orient_header + "\n")
+                    orient_header_big = (
+                        f"POL  SITE-LABELS  {site1}  {site2}  SITE-INDICES     {idx1}     {idx2}  "
+                        f"RANK  0 :   1   BY     0 :   1   FREQ2  {freq_formatted}  CARTSPHER S"
+                    )
+                    orient_header_small = (
+                        f"POL  SITE-LABELS  {site1}  {site2}  SITE-INDICES     {idx1}     {idx2}  "
+                        f"RANK  0 :   0   BY     0 :   0   FREQ2  {freq_formatted}  CARTSPHER S"
+                    )
+                    if atomic_moment_order == 1:
+                        # In the regular file we write the 4 by 4 mat,
+                        # in the other file we write only the [0,0] value and write 0.0E+00 for the rest
+
+                        file.write(orient_header_big + "\n")
+                        file2.write(orient_header_big + "\n")
 
                         for i in range(4):
-                            row = ""
+                            row1 = ""
+                            row2 = ""
                             for j in range(4):
                                 value_str = f"{matrix[i, j]:.7E}"
-                                row += value_str + "   "
+                                row1 += value_str + "   "
+                                if i == 0 and j == 0:
+                                    row2 += value_str + "   "
+                                else:
+                                    row2 += "0.0E+00   "
 
-                            file.write(f"{row}\n")
+                            file.write(f"{row1}\n")
+                            file2.write(f"{row2}\n")
 
                         file.write("END\n")
-                    elif rank == 0:
-                        orient_header = (
-                            f"POL  SITE-LABELS  {site1}  {site2}  SITE-INDICES     {idx1}     {idx2}  "
-                            f"RANK  0 :   0   BY     0 :   0   FREQ2  {freq_formatted}  CARTSPHER S"
-                        )
+                        file2.write("END\n")
+                    elif atomic_moment_order == 0:
+                        # In the regular file we write the 1 by 1 mat,
+                        # in the other file write a 4 by 4 mat with 0.0E+00 for the rest
 
-                        file.write(orient_header + "\n")
+                        file.write(orient_header_small + "\n")
                         file.write(f"{matrix[0, 0]:.7E}\n")
                         file.write("END\n")
+
+                        file2.write(orient_header_big + "\n")
+
+                        row = f"{matrix[0, 0]:.7E}   0.0E+00   0.0E+00   0.0E+00\n"
+                        for _i in range(3):
+                            row += "0.0E+00   0.0E+00   0.0E+00   0.0E+00\n"
+
+                        file2.write(f"{row}\n")
+                        file2.write("END\n")
 
                 else:
                     sys.exit(f"Error: Frequency {freq} not found in C6 data for {site1} and {site2}")
