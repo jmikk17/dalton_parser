@@ -1,5 +1,6 @@
 *.pyc
-c6_*.out
+c6_cc*.out
+c6_hf*.out
 c6_*.txt
 *.json
 *.orient1
