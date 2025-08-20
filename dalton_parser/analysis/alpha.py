@@ -1,3 +1,5 @@
+"""Alpha analysis for Dalton polarizability calculations."""
+
 import numpy as np
 import pandas as pd
 

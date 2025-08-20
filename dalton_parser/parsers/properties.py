@@ -1,11 +1,12 @@
+"""Parser for properties from Dalton output."""
+
 import re
 import sys
 
 import numpy as np
 import pandas as pd
-from scipy.interpolate import pade
 
-import auxil
+from dalton_parser.utils.helpers import get_label
 
 # C6 xyz labels following the Orient format
 XYZ_TO_SPHERICAL = {
@@ -15,19 +16,7 @@ XYZ_TO_SPHERICAL = {
     "0y": 3,  # 11s
 }
 
-FREQ_SQ_LIST = [
-    0.0000000e00,
-    -4.3700000e-05,
-    -1.3086000e-03,
-    -9.1102000e-03,
-    -3.9063200e-02,
-    -1.3720890e-01,
-    -4.5550980e-01,
-    -1.5999700e00,
-    -6.8604430e00,
-    -4.7760340e01,
-    -1.4306370e03,
-]
+ORIENT_ORDER = ["00", "0z", "0x", "0y"]
 
 
 def extract_2nd_order_prop(content: str, wave_function: str, atomic_moment_order: int) -> dict:
@@ -59,8 +48,8 @@ def extract_2nd_order_prop(content: str, wave_function: str, atomic_moment_order
         operator2 = match.group(2)
         value = match.group(3)
 
-        index1, _, xyz_comp1 = auxil.get_label(operator1)
-        index2, _, xyz_comp2 = auxil.get_label(operator2)
+        index1, _, xyz_comp1 = get_label(operator1)
+        index2, _, xyz_comp2 = get_label(operator2)
 
         if xyz_comp1 == "00" and xyz_comp2 == "00":
             key = f"{index1}_{index2}"
@@ -171,11 +160,13 @@ def read_2nd_order_prop(content: dict) -> pd.DataFrame:
     return pd.DataFrame(parsed_data)
 
 
-def extract_imaginary(content: str) -> dict:
+def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq: int) -> dict:
     """Extract alpha(i omega) from the Dalton output.
 
     Args:
         content (str): Content of the Dalton output file
+        atomic_moment_order (int): Atomic moment order
+        atoms (int): Number of atoms
         n_freq (int): Number of frequencies to extract
 
     Returns:
@@ -184,6 +175,9 @@ def extract_imaginary(content: str) -> dict:
 
     Todo:
         - Logic for parsing needs to be double checked.
+        - The current implementation assumes 4x4 matrices for each pair+frequency,
+          but this should be generalized using atomic_moment_order
+        - Clean up, function way too long
 
     """
     results = {}
@@ -192,116 +186,93 @@ def extract_imaginary(content: str) -> dict:
         r"(AM\w+)\s+(AM\w+)\s+([-]?\d+\.\d+)\n\s+GRIDSQ\s+ALPHA\n((?:\s+[-]?\d+\.\d+\s+[-]?\d+\.\d+\n){11})"
     )
 
+    labels_per_atom = 0
+    for i in range(atomic_moment_order + 1):
+        labels_per_atom += 2 * i + 1
+
+    tot_labels = labels_per_atom * atoms
+    full_response = np.zeros((tot_labels, tot_labels, n_freq), dtype=float)
+
+    operator_to_idx = {}
+    current_idx = 0
+
+    # Collect all unique operators from Dalton
+    for match in re.finditer(imaginary_pattern, content):
+        op1, op2 = match.group(1), match.group(2)
+        if op1 not in operator_to_idx:
+            operator_to_idx[op1] = current_idx
+            current_idx += 1
+        if op2 not in operator_to_idx:
+            operator_to_idx[op2] = current_idx
+            current_idx += 1
+
+    if len(operator_to_idx) != tot_labels:
+        sys.exit(f"Error: Expected {tot_labels} unique operators, found {len(operator_to_idx)}.")
+
+    # Fill the triangular matrix following Dalton output structure
+    frequencies = []
     for match in re.finditer(imaginary_pattern, content):
         operator1 = match.group(1)
         operator2 = match.group(2)
-
         data_block = match.group(4)
 
-        index1, _, xyz_comp1 = auxil.get_label(operator1)
-        index2, _, xyz_comp2 = auxil.get_label(operator2)
-
-        # We only have half the values, but in the new format they are not necessarily triangle of a mat
-        # So we need to collect 1_2 and 2_1 terms in same mat
-        key1 = f"{index1}_{index2}"
-        key2 = f"{index2}_{index1}"
-        reverse = False
-        if key1 in results:
-            key = key1
-        elif key2 in results:
-            key = key2
-            reverse = True
-        else:
-            key = key1
-            results[key1] = {}
-
-        xyz_idx1 = XYZ_TO_SPHERICAL.get(xyz_comp1, 0)
-        xyz_idx2 = XYZ_TO_SPHERICAL.get(xyz_comp2, 0)
+        full_idx1 = operator_to_idx[operator1]
+        full_idx2 = operator_to_idx[operator2]
 
         data_lines = data_block.strip().split("\n")
-        for line in data_lines:
+        for freq_idx, line in enumerate(data_lines):
             parts = line.strip().split()
-            if len(parts) >= 2:  # Ensure the line contains GRIDSQ and ALPHA values
-                gridsq = -float(parts[0])
-                alpha = float(parts[1])
+            gridsq = -float(parts[0])
+            alpha = float(parts[1])
 
-                if str(gridsq) not in results[key]:
-                    results[key][str(gridsq)] = np.zeros((4, 4))
-                if reverse:
-                    results[key][str(gridsq)][xyz_idx2, xyz_idx1] = alpha
-                else:
-                    results[key][str(gridsq)][xyz_idx1, xyz_idx2] = alpha
-                if index1 == index2 and xyz_comp1 != xyz_comp2:
-                    results[key][str(gridsq)][xyz_idx2, xyz_idx1] = alpha
+            # Store frequency value on first pass
+            if len(frequencies) <= freq_idx:
+                frequencies.append(gridsq)
 
-    return results
+            full_response[full_idx1, full_idx2, freq_idx] = alpha
 
+    # Fill out other triangle of the matrix
+    for freq_idx in range(n_freq):
+        for i in range(tot_labels):
+            for j in range(tot_labels):
+                if full_response[i, j, freq_idx] != 0 and full_response[j, i, freq_idx] == 0:
+                    full_response[j, i, freq_idx] = full_response[i, j, freq_idx]
 
-def pade_approx(content: str) -> dict:
-    """Extract Cauchy moments from the Dalton output, calculate alpha(i omega) using Pade approximations."""
+    # Create atom-index to dalton-index mapping based on Dalton ordering
+    # This is used to pick out 4x4 submatrices for specific atom pairs
+    atom_to_indices = {}
+    for op, dalton_idx in operator_to_idx.items():
+        atom_idx, _, component = get_label(op)
+        if atom_idx not in atom_to_indices:
+            atom_to_indices[atom_idx] = []
+        atom_to_indices[atom_idx].append((dalton_idx, component))
+
+    # Sort each atom's indices by spherical harmonic order used in Orient
+    for atom_idx in atom_to_indices:
+        atom_to_indices[atom_idx].sort(key=lambda x: ORIENT_ORDER.index(x[1]))
+
+    # Extract submatrices for each atom pair
     results = {}
 
-    block_pattern = (
-        r"\s*(AM\w+)\s+(AM\w+)\s+(-?\d+)\s+([-\d.Ee+]+)\s*\n"
-        r"((?:\s+-?\d+\s+[-\d.Ee+]+\s*\n)+)"
-    )
+    for atom1 in range(1, atoms + 1):
+        for atom2 in range(atom1, atoms + 1):
+            pair_key = f"{atom1}_{atom2}"
+            results[pair_key] = {}
 
-    for match in re.finditer(block_pattern, content):
-        # The first line contains both labels and values, the rest is only data for Cauchy number n and value D_AB
-        # Assumes coefficients starts from D(-4)=S(+2), and we need to start from D(0)=S(-2), D(n) = S(-n-2)
-        operator1 = match.group(1)
-        operator2 = match.group(2)
-        _ = int(match.group(3))
-        _ = float(match.group(4))
-        data_block = match.group(5)
+            # Get Dalton indices for each atom (in component order)
+            atom1_indices = [idx for idx, _ in atom_to_indices[atom1]]
+            atom2_indices = [idx for idx, _ in atom_to_indices[atom2]]
 
-        n_list = []
-        d_ab_list = []
-        first = True
+            # Extract submatrix for each frequency
+            for freq_idx in range(n_freq):
+                freq = frequencies[freq_idx]
 
-        for line in data_block.strip().splitlines():
-            if first:
-                first = False
-                continue
-            n, d_ab = line.split()
-            n_list.append(int(n))
-            d_ab_list.append(float(d_ab))
+                # Build 4x4 submatrix by picking specific indices from full matrix
+                submatrix = np.zeros((labels_per_atom, labels_per_atom))
+                for i, dalton_idx1 in enumerate(atom1_indices):
+                    for j, dalton_idx2 in enumerate(atom2_indices):
+                        submatrix[i, j] = full_response[dalton_idx1, dalton_idx2, freq_idx]
 
-        print("Operator 1:", operator1, "Operator 2:", operator2)
-        print(f"n_list: {n_list}")
-        print(f"d_ab_list: {d_ab_list}")
+                results[pair_key][freq] = submatrix
 
-        k = 4
-
-        scale = max(abs(x) for x in d_ab_list) or 1.0
-        d_ab_scaled = [x / scale for x in d_ab_list]
-
-        if len(n_list) < (k * 2 + 1):
-            sys.exit(f"Not enough moments for Pade, need {k * 2 + 1} moments, got {len(n_list)}")
-        p_low, q_low = pade(d_ab_scaled, n=k, m=(k - 1))
-        p_high, q_high = pade(d_ab_scaled, n=k, m=k)
-
-        for i in range(10):
-            z_value = FREQ_SQ_LIST[i]
-
-            pade_result_low = scale * p_low(z_value) / q_low(z_value)
-            pade_result_high = scale * p_high(z_value) / q_high(z_value)
-
-            normal_expansion = (
-                d_ab_list[0] * z_value**0
-                + d_ab_list[1] * z_value**1
-                + d_ab_list[2] * z_value**2
-                + d_ab_list[3] * z_value**3
-                + d_ab_list[4] * z_value**4
-            )
-            print(
-                "Omega sq:",
-                FREQ_SQ_LIST[i],
-                "Normal power series:",
-                normal_expansion,
-                "Pade approximation:",
-                pade_result_low,
-                pade_result_high,
-            )
-
-    sys.exit("Pade approximation not implemented yet")
+    return results

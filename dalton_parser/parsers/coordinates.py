@@ -1,3 +1,5 @@
+"""Parser for coordinates from Dalton output."""
+
 import re
 import sys
 
