@@ -3,6 +3,7 @@
 import re
 import sys
 
+import numpy as np
 from scipy.interpolate import pade
 
 FREQ_SQ_LIST = [
@@ -32,6 +33,105 @@ WEIGHT_LIST = [
     1.306351932,
     15.5845986,
 ]
+
+
+def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
+    """Numerically integrate C6 data from full response matrix using set weights from WEIGHT_LIST.
+
+    C6 coeficients are defined as C_ABCD= int(0 to infty) alpha_AB(omega)*alpha_CD(omega) domega
+
+    Currently setup to use the same response matrix for both alphas
+    """
+    n_labels = len(operator_to_idx)
+    integrated_data = np.zeros((n_labels, n_labels, n_labels, n_labels))
+
+    print("Order of labels:", list(operator_to_idx.keys()))
+    # Test which fields of response or non-zero, mark values with X and non-value with 0:
+    for i in range(n_labels):
+        row = ""
+        for j in range(n_labels):
+            if full_response[i, j, 0].any():
+                row += "X "
+            else:
+                row += "0 "
+        print(f"Row {i + 1}: {row}")
+
+    n_freq = 10
+
+    for freq in range(n_freq):
+        for i in range(n_labels):
+            for j in range(n_labels):
+                for k in range(n_labels):
+                    for l in range(n_labels):
+                        integrated_data[i, j, k, l] = np.sum(
+                            full_response[i, j] * full_response[k, l] * WEIGHT_LIST[freq]
+                        )
+
+    print("Example of 0,0,0,x:")
+    print("For water this is oxygen charge on 3 first indices, and all on the last:")
+    print(integrated_data[0, 0, 0, :])
+
+    # Pick out charge values for testing, i.e. the first three indices:
+
+    # currently hardcoded to 3, and assumes charge terms are the first indices
+    n_atoms = 3
+
+    charge_C6 = integrated_data[0:n_atoms, 0:n_atoms, 0:n_atoms, 0:n_atoms]
+
+    # print("Charge C6 values:")
+    # print(charge_C6)
+
+    # Collapse indices
+
+    charge_collapsed = np.reshape(charge_C6, [n_atoms * n_atoms, n_atoms * n_atoms])
+
+    print("Charge C6 collapsed:")
+    print(charge_collapsed)
+
+    # Get svd approximation
+
+    u, s, vh = np.linalg.svd(charge_collapsed)
+    print("SVD U matrix:")
+    print(u)
+    print("SVD singular values:")
+    print(s)
+    print("SVD Vh matrix:")
+    print(vh)
+
+    # pick out first values
+
+    u1 = u[:, 0]
+    s1 = s[0]
+    vh1 = vh[0, :]
+
+    # approximation
+
+    u1 = np.reshape(u1, [n_atoms * n_atoms, 1])
+    vh1 = np.reshape(vh1, [1, n_atoms * n_atoms])
+    print(np.shape(u1), np.shape(vh1))
+
+    approx = s1 * np.multiply(u1, vh1)
+
+    print("SVD approximation:")
+    # print(approx)
+    for i in range(n_atoms * n_atoms):
+        row = ""
+        for j in range(n_atoms * n_atoms):
+            row += f"{approx[i, j]:.2E} "
+        print(f"Row {i + 1}: {row}")
+
+    # evaluate approximation
+
+    diff_matrix = charge_collapsed - approx
+    print("Difference matrix:")
+    print(diff_matrix)
+
+    # Print 3by3 approximations
+    print("3x3 approximation:")
+    print(np.reshape(u1, [n_atoms, n_atoms]))
+    print(np.reshape(vh1, [n_atoms, n_atoms]))
+
+    return integrated_data
 
 
 def pade_approx(content: str) -> dict:

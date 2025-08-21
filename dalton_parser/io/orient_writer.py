@@ -75,10 +75,11 @@ def write_matrix_data(file_handle: TextIO, matrix: np.ndarray, rank: int) -> Non
     - rank 0: Only [0,0] element is non-zero
     - rank 1: Inner 4x4 region is non-zero
     - rank 2: Full 8x8 matrix is non-zero
+    These sizes are hardcoded with global variables at the top of this file.
 
     Args:
         file_handle: File handle to write to
-        matrix: 8x8 matrix data to write
+        matrix: up to 8x8 matrix data to write
         rank (int): Determines active region size
 
     """

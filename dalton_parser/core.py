@@ -7,7 +7,7 @@ import warnings
 from typing import TYPE_CHECKING
 
 from .analysis.alpha import alpha_calc
-from .analysis.dispersion import pade_approx
+from .analysis.dispersion import integrate_c6, pade_approx
 from .config import get_file_names
 from .io.file_operations import read_file
 from .io.orient_writer import write_c6
@@ -48,7 +48,7 @@ def process_files(args: argparse.Namespace) -> dict | None:
         return result, output_file
     if args.mode == "c6":
         content = read_file(input_file, ".out")
-        parse_imaginary_data(content, output_file)
+        alpha_imaginary_analysis(content, output_file)
         return None, None
 
     return None, None
@@ -115,12 +115,16 @@ def alpha_analysis(content: dict) -> dict:
     return alpha_calc(property_df, geometry, atmmom)
 
 
-def parse_imaginary_data(content: str, output_file: str) -> dict:
+def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
     """Extract alpha(i omega) data from Dalton output file, and write as orient fmtB polarizability file.
 
     Args:
         content (str): Content of Dalton output file
         output_file (str): Output file name
+
+    Todo:
+        - Move write_c6 out to main, pass out results instead
+        - n_freq is currently hardcoded
 
     """
     imaginary_dict = {}
@@ -128,16 +132,20 @@ def parse_imaginary_data(content: str, output_file: str) -> dict:
     calc_info = extract_calculation_info(content)
     atmmom = calc_info["atomic_moment_order"]
     coord_dict = extract_coordinates(content, label_only=True)
+
     if not wave_function:
         sys.exit("Error: No wave function type found")
     if wave_function["wave_function"] != "CC":
         # TODO This requires a min print level of 5 in the Dalton input file
-        imaginary_dict = extract_imaginary(content, atmmom, len(coord_dict), n_freq=11)
+        imaginary_dict, full_response, operator_to_idx = extract_imaginary(content, atmmom, len(coord_dict), n_freq=11)
     elif wave_function["wave_function"] == "CC":
         sys.exit("Error: C6 data extraction is not supported for CC wave functions yet")
+        # Also add a seperate reading function for CC Padé moments
         imaginary_dict = pade_approx(content)
     if not imaginary_dict:
         sys.exit("Error: No C6 data found")
+
+    integrate_c6(full_response, operator_to_idx)
 
     labels = extract_coordinates(content, label_only=True)
 

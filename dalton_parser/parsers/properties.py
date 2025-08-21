@@ -1,7 +1,7 @@
 """Parser for properties from Dalton output."""
 
 import re
-import sys
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,29 @@ XYZ_TO_SPHERICAL = {
 }
 
 ORIENT_ORDER = ["00", "0z", "0x", "0y"]
+
+
+def extract_1st_order_prop(content: str) -> list:
+    """Extract MBIS charges from the Dalton output.
+
+    Args:
+        content (str): Content of the Dalton output file
+
+    Returns:
+        list: MBIS charges
+
+    """
+    mbis_pattern = r"MBIS converged!.*?Final converged results\s+Qatom(.*?)(?:\n\s*\n|\Z)"
+    mbis_match = re.search(mbis_pattern, content, re.DOTALL)
+
+    charge_list = []
+    if mbis_match:
+        charge_section = mbis_match.group(1)
+        charge_pattern = r"\s+(\d+)\s+([-+]?\d+\.\d+)"
+        charge_list.extend(
+            [float(charge_match.group(2)) for charge_match in re.finditer(charge_pattern, charge_section)],
+        )
+    return charge_list
 
 
 def extract_2nd_order_prop(content: str, wave_function: str, atomic_moment_order: int) -> dict:
@@ -69,29 +92,6 @@ def extract_2nd_order_prop(content: str, wave_function: str, atomic_moment_order
     if wave_function == "CC":
         return {"00": properties_00, "0b": properties_0b, "a0": properties_a0, "ab": properties_ab}
     return {"00": properties_00, "0b": properties_0b, "ab": properties_ab}
-
-
-def extract_1st_order_prop(content: str) -> list:
-    """Extract MBIS charges from the Dalton output.
-
-    Args:
-        content (str): Content of the Dalton output file
-
-    Returns:
-        list: MBIS charges
-
-    """
-    mbis_pattern = r"MBIS converged!.*?Final converged results\s+Qatom(.*?)(?:\n\s*\n|\Z)"
-    mbis_match = re.search(mbis_pattern, content, re.DOTALL)
-
-    charge_list = []
-    if mbis_match:
-        charge_section = mbis_match.group(1)
-        charge_pattern = r"\s+(\d+)\s+([-+]?\d+\.\d+)"
-        charge_list.extend(
-            [float(charge_match.group(2)) for charge_match in re.finditer(charge_pattern, charge_section)],
-        )
-    return charge_list
 
 
 def read_2nd_order_prop(content: dict) -> pd.DataFrame:
@@ -160,7 +160,7 @@ def read_2nd_order_prop(content: dict) -> pd.DataFrame:
     return pd.DataFrame(parsed_data)
 
 
-def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq: int) -> dict:
+def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq: int) -> tuple[dict, np.ndarray, dict]:
     """Extract alpha(i omega) from the Dalton output.
 
     Args:
@@ -180,8 +180,6 @@ def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq
         - Clean up, function way too long
 
     """
-    results = {}
-
     imaginary_pattern = (
         r"(AM\w+)\s+(AM\w+)\s+([-]?\d+\.\d+)\n\s+GRIDSQ\s+ALPHA\n((?:\s+[-]?\d+\.\d+\s+[-]?\d+\.\d+\n){11})"
     )
@@ -207,7 +205,7 @@ def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq
             current_idx += 1
 
     if len(operator_to_idx) != tot_labels:
-        sys.exit(f"Error: Expected {tot_labels} unique operators, found {len(operator_to_idx)}.")
+        warnings.warn(f"Expected {tot_labels} unique operators, found {len(operator_to_idx)}.", stacklevel=1)
 
     # Fill the triangular matrix following Dalton output structure
     frequencies = []
@@ -222,10 +220,11 @@ def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq
         data_lines = data_block.strip().split("\n")
         for freq_idx, line in enumerate(data_lines):
             parts = line.strip().split()
+            # Orient uses -freq^2
             gridsq = -float(parts[0])
             alpha = float(parts[1])
 
-            # Store frequency value on first pass
+            # Store frequency value on first occurrence
             if len(frequencies) <= freq_idx:
                 frequencies.append(gridsq)
 
@@ -252,12 +251,12 @@ def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq
         atom_to_indices[atom_idx].sort(key=lambda x: ORIENT_ORDER.index(x[1]))
 
     # Extract submatrices for each atom pair
-    results = {}
+    orient_format_results = {}
 
     for atom1 in range(1, atoms + 1):
         for atom2 in range(atom1, atoms + 1):
             pair_key = f"{atom1}_{atom2}"
-            results[pair_key] = {}
+            orient_format_results[pair_key] = {}
 
             # Get Dalton indices for each atom (in component order)
             atom1_indices = [idx for idx, _ in atom_to_indices[atom1]]
@@ -273,6 +272,10 @@ def extract_imaginary(content: str, atomic_moment_order: int, atoms: int, n_freq
                     for j, dalton_idx2 in enumerate(atom2_indices):
                         submatrix[i, j] = full_response[dalton_idx1, dalton_idx2, freq_idx]
 
-                results[pair_key][freq] = submatrix
+                orient_format_results[pair_key][freq] = submatrix
 
-    return results
+    return (
+        orient_format_results,
+        full_response,
+        operator_to_idx,
+    )
