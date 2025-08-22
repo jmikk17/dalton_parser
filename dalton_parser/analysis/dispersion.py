@@ -35,7 +35,7 @@ WEIGHT_LIST = [
 ]
 
 
-def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
+def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int = 3):
     """Numerically integrate C6 data from full response matrix using set weights from WEIGHT_LIST.
 
     C6 coeficients are defined as C_ABCD= int(0 to infty) alpha_AB(omega)*alpha_CD(omega) domega
@@ -56,15 +56,15 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
                 row += "0 "
         print(f"Row {i + 1}: {row}")
 
-    n_freq = 10
+    n_freq = len(WEIGHT_LIST) - 1  # WEIGHT_LIST has 11 elements (0-10)
 
-    for freq in range(n_freq):
-        for i in range(n_labels):
-            for j in range(n_labels):
-                for k in range(n_labels):
-                    for l in range(n_labels):
-                        integrated_data[i, j, k, l] = np.sum(
-                            full_response[i, j] * full_response[k, l] * WEIGHT_LIST[freq]
+    for i in range(n_labels):
+        for j in range(n_labels):
+            for k in range(n_labels):
+                for l in range(n_labels):
+                    for freq in range(n_freq + 1):
+                        integrated_data[i, j, k, l] += (
+                            full_response[i, j, freq] * full_response[k, l, freq] * WEIGHT_LIST[freq]
                         )
 
     print("Example of 0,0,0,x:")
@@ -73,8 +73,7 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
 
     # Pick out charge values for testing, i.e. the first three indices:
 
-    # currently hardcoded to 3, and assumes charge terms are the first indices
-    n_atoms = 3
+    # assumes charge terms are the first indices
 
     charge_C6 = integrated_data[0:n_atoms, 0:n_atoms, 0:n_atoms, 0:n_atoms]
 
@@ -110,7 +109,7 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
     vh1 = np.reshape(vh1, [1, n_atoms * n_atoms])
     print(np.shape(u1), np.shape(vh1))
 
-    approx = s1 * np.multiply(u1, vh1)
+    approx = s1 * np.outer(u1, vh1)
 
     print("SVD approximation:")
     # print(approx)
@@ -130,6 +129,57 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict):
     print("3x3 approximation:")
     print(np.reshape(u1, [n_atoms, n_atoms]))
     print(np.reshape(vh1, [n_atoms, n_atoms]))
+
+    u1 = np.reshape(u1, [n_atoms, n_atoms])
+    vh1 = np.reshape(vh1, [n_atoms, n_atoms])
+
+    # make test geometry
+    R_AB = np.zeros((n_atoms, n_atoms))
+    R_AB[0, 1] = 1.0
+    R_AB[1, 0] = 1.0
+    R_AB[0, 2] = 2.0
+    R_AB[2, 0] = 2.0
+    R_AB[1, 2] = 1.0
+    R_AB[2, 1] = 1.0
+
+    e_disp = 0.0
+
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            for k in range(n_atoms):
+                for l in range(n_atoms):
+                    if R_AB[i, j] == 0 or R_AB[k, l] == 0:
+                        continue
+                    else:
+                        e_disp += integrated_data[i, j, k, l] / (R_AB[i, j] * R_AB[k, l])
+
+    # Calculate the AB sum
+    sum_AB = 0.0
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            if R_AB[i, j] != 0:
+                sum_AB += u1[i, j] / R_AB[i, j]
+    # Calculate the CD sum
+    sum_CD = 0.0
+    for k in range(n_atoms):
+        for l in range(n_atoms):
+            if R_AB[k, l] != 0:
+                sum_CD += vh1[k, l] / R_AB[k, l]
+
+    e_disp_approx1 = s1 * sum_AB * sum_CD
+
+    print("E_disp:", e_disp)
+    print("E_disp_approx:", e_disp_approx1)
+
+    # extra approximation
+    e_disp_approx2 = 0.0
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            if R_AB[i, j] != 0:
+                e_disp_approx2 += np.sqrt(s1) * u1[i, j] / R_AB[i, j]
+    # Calculate the CD sum
+
+    print("E_disp_approx2:", e_disp_approx2**2)
 
     return integrated_data
 
