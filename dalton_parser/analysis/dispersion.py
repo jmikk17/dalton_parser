@@ -45,6 +45,8 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int 
     n_labels = len(operator_to_idx)
     integrated_data = np.zeros((n_labels, n_labels, n_labels, n_labels))
 
+    n_atoms = 12
+
     print("Order of labels:", list(operator_to_idx.keys()))
     # Test which fields of response or non-zero, mark values with X and non-value with 0:
     for i in range(n_labels):
