@@ -3,6 +3,8 @@
 import re
 import sys
 
+from dalton_parser.utils.helpers import print_non_zero_matrix_elements
+
 import numpy as np
 from scipy.interpolate import pade
 
@@ -35,36 +37,28 @@ WEIGHT_LIST = [
 ]
 
 
-def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int = 3):
+def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: list[dict], atomic_moment_order: int):
     """Numerically integrate C6 data from full response matrix using set weights from WEIGHT_LIST.
 
     C6 coeficients are defined as C_ABCD= int(0 to infty) alpha_AB(omega)*alpha_CD(omega) domega
 
     Currently setup to use the same response matrix for both alphas
     """
+    n_atoms = len(coord_dict)
     n_labels = len(operator_to_idx)
     integrated_data = np.zeros((n_labels, n_labels, n_labels, n_labels))
 
-    n_atoms = 12
-
     print("Order of labels:", list(operator_to_idx.keys()))
-    # Test which fields of response or non-zero, mark values with X and non-value with 0:
-    for i in range(n_labels):
-        row = ""
-        for j in range(n_labels):
-            if full_response[i, j, 0].any():
-                row += "X "
-            else:
-                row += "0 "
-        print(f"Row {i + 1}: {row}")
 
-    n_freq = len(WEIGHT_LIST) - 1  # WEIGHT_LIST has 11 elements (0-10)
+    print_non_zero_matrix_elements(full_response[:, :, 0], "0 freq. response")
+
+    n_freq = len(WEIGHT_LIST)
 
     for i in range(n_labels):
         for j in range(n_labels):
             for k in range(n_labels):
                 for l in range(n_labels):
-                    for freq in range(n_freq + 1):
+                    for freq in range(n_freq):
                         integrated_data[i, j, k, l] += (
                             full_response[i, j, freq] * full_response[k, l, freq] * WEIGHT_LIST[freq]
                         )
@@ -79,31 +73,57 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int 
 
     charge_C6 = integrated_data[0:n_atoms, 0:n_atoms, 0:n_atoms, 0:n_atoms]
 
+    if atomic_moment_order >= 1:
+        dipole_C6 = integrated_data[n_atoms:, n_atoms:, n_atoms:, n_atoms:]
+        print(np.shape(dipole_C6))
+
     # print("Charge C6 values:")
     # print(charge_C6)
 
     # Collapse indices
 
     charge_collapsed = np.reshape(charge_C6, [n_atoms * n_atoms, n_atoms * n_atoms])
+    if atomic_moment_order >= 1:
+        dipole_collapsed = np.reshape(dipole_C6, [3 * n_atoms * 3 * n_atoms, 3 * n_atoms * 3 * n_atoms])
 
-    print("Charge C6 collapsed:")
-    print(charge_collapsed)
+    # print("Charge C6 collapsed:")
+    # print(charge_collapsed)
 
     # Get svd approximation
 
     u, s, vh = np.linalg.svd(charge_collapsed)
-    print("SVD U matrix:")
-    print(u)
-    print("SVD singular values:")
+    print("SVD singular values for charge:")
     print(s)
-    print("SVD Vh matrix:")
-    print(vh)
+    print("First singular value in % of total:", s[0] / np.sum(s) * 100)
+
+    # print("SVD U matrix:")
+    # print(u)
+    # print("SVD Vh matrix:")
+    # print(vh)
+
+    # Test if U and V are the same. Test each element difference to 10^-5
+    # for i in range(np.shape(u)[0]):
+    #    for j in range(np.shape(u)[1]):
+    #        assert abs(u[i, j] - vh[j, i]) < 1e-5
+
+    # svd for dipole
+
+    if atomic_moment_order >= 1:
+        u_d, s_d, vh_d = np.linalg.svd(dipole_collapsed)
+        print("SVD singular values for dipole:")
+        print(s_d)
+        print("First singular value in % of total:", s_d[0] / np.sum(s_d) * 100)
 
     # pick out first values
 
     u1 = u[:, 0]
     s1 = s[0]
     vh1 = vh[0, :]
+
+    if atomic_moment_order >= 1:
+        u1_d = u_d[:, 0]
+        s1_d = s_d[0]
+        vh1_d = vh_d[0, :]
 
     # approximation
 
@@ -113,38 +133,60 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int 
 
     approx = s1 * np.outer(u1, vh1)
 
-    print("SVD approximation:")
-    # print(approx)
-    for i in range(n_atoms * n_atoms):
-        row = ""
-        for j in range(n_atoms * n_atoms):
-            row += f"{approx[i, j]:.2E} "
-        print(f"Row {i + 1}: {row}")
+    if atomic_moment_order >= 1:
+        u1_d = np.reshape(u1_d, [3 * n_atoms * 3 * n_atoms, 1])
+        vh1_d = np.reshape(vh1_d, [1, 3 * n_atoms * 3 * n_atoms])
+        print(np.shape(u1_d), np.shape(vh1_d))
+        approx_d = s1_d * np.outer(u1_d, vh1_d)
 
     # evaluate approximation
 
     diff_matrix = charge_collapsed - approx
-    print("Difference matrix:")
-    print(diff_matrix)
+    # print("Difference matrix (charge):")
+    # print(diff_matrix)
+    print("Max difference from charge svd:", np.max(np.abs(diff_matrix)))
 
-    # Print 3by3 approximations
-    print("3x3 approximation:")
-    print(np.reshape(u1, [n_atoms, n_atoms]))
+    if atomic_moment_order >= 1:
+        diff_matrix_d = dipole_collapsed - approx_d
+        # print("Difference matrix (dipole):")
+        # print(diff_matrix_d)
+        print("Max difference from dipole svd:", np.max(np.abs(diff_matrix_d)))
+
     print(np.reshape(vh1, [n_atoms, n_atoms]))
 
     u1 = np.reshape(u1, [n_atoms, n_atoms])
     vh1 = np.reshape(vh1, [n_atoms, n_atoms])
 
+    if atomic_moment_order >= 1:
+        u1_d = np.reshape(u1_d, [3 * n_atoms, 3 * n_atoms])
+        vh1_d = np.reshape(vh1_d, [3 * n_atoms, 3 * n_atoms])
+        print(np.shape(u1_d), np.shape(vh1_d))
+
     # make test geometry
+    # R_AB = np.zeros((n_atoms, n_atoms))
+    # R_AB[0, 1] = 1.0
+    # R_AB[1, 0] = 1.0
+    # R_AB[0, 2] = 2.0
+    # R_AB[2, 0] = 2.0
+    # R_AB[1, 2] = 1.0
+    # R_AB[2, 1] = 1.0
+
+    # Calculate real distance using coord dict:
     R_AB = np.zeros((n_atoms, n_atoms))
-    R_AB[0, 1] = 1.0
-    R_AB[1, 0] = 1.0
-    R_AB[0, 2] = 2.0
-    R_AB[2, 0] = 2.0
-    R_AB[1, 2] = 1.0
-    R_AB[2, 1] = 1.0
+    for i, dict_i in enumerate(coord_dict):
+        for j, dict_j in enumerate(coord_dict):
+            coord_i = np.array([dict_i["x"], dict_i["y"], dict_i["z"]])
+            coord_j = np.array([dict_j["x"], dict_j["y"], dict_j["z"]])
+            R_AB[i, j] = np.linalg.norm(coord_i - coord_j)
+
+    print("Interatomic distance matrix R_AB:")
+    print(R_AB)
 
     e_disp = 0.0
+    e_disp_d = 0.0
+
+    # Calculate dispersion energy using full 4-body terms for reference
+    # Current "screening" is 1 for a=b and 0 otherwise
 
     for i in range(n_atoms):
         for j in range(n_atoms):
@@ -153,7 +195,22 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int 
                     if R_AB[i, j] == 0 or R_AB[k, l] == 0:
                         continue
                     else:
-                        e_disp += integrated_data[i, j, k, l] / (R_AB[i, j] * R_AB[k, l])
+                        e_disp += charge_C6[i, j, k, l] / (R_AB[i, j] * R_AB[k, l])
+
+    # Same for dipole interaction
+    if atomic_moment_order >= 1:
+        for i in range(3 * n_atoms):
+            for j in range(3 * n_atoms):
+                for k in range(3 * n_atoms):
+                    for l in range(3 * n_atoms):
+                        atom_i = i // 3
+                        atom_j = j // 3
+                        atom_k = k // 3
+                        atom_l = l // 3
+                        if R_AB[atom_i, atom_j] == 0 or R_AB[atom_k, atom_l] == 0:
+                            continue
+                        else:
+                            e_disp_d += dipole_C6[i, j, k, l] / (R_AB[atom_i, atom_j] * R_AB[atom_k, atom_l])
 
     # Calculate the AB sum
     sum_AB = 0.0
@@ -179,7 +236,6 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, n_atoms: int 
         for j in range(n_atoms):
             if R_AB[i, j] != 0:
                 e_disp_approx2 += np.sqrt(s1) * u1[i, j] / R_AB[i, j]
-    # Calculate the CD sum
 
     print("E_disp_approx2:", e_disp_approx2**2)
 

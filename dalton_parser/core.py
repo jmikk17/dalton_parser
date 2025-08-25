@@ -6,6 +6,8 @@ import sys
 import warnings
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from .analysis.alpha import alpha_calc
 from .analysis.dispersion import integrate_c6, pade_approx
 from .config import get_file_names
@@ -131,13 +133,13 @@ def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
     wave_function = extract_wave_function_type(content)
     calc_info = extract_calculation_info(content)
     atmmom = calc_info["atomic_moment_order"]
-    coord_dict = extract_coordinates(content, label_only=True)
+    coord_list = extract_coordinates(content)
 
     if not wave_function:
         sys.exit("Error: No wave function type found")
     if wave_function["wave_function"] != "CC":
         # TODO This requires a min print level of 5 in the Dalton input file
-        imaginary_dict, full_response, operator_to_idx = extract_imaginary(content, atmmom, len(coord_dict), n_freq=11)
+        imaginary_dict, full_response, operator_to_idx = extract_imaginary(content, atmmom, len(coord_list), n_freq=11)
     elif wave_function["wave_function"] == "CC":
         sys.exit("Error: C6 data extraction is not supported for CC wave functions yet")
         # Also add a seperate reading function for CC Padé moments
@@ -145,7 +147,7 @@ def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
     if not imaginary_dict:
         sys.exit("Error: No C6 data found")
 
-    integrate_c6(full_response, operator_to_idx)
+    integrate_c6(full_response, operator_to_idx, coord_list, atmmom)
 
     labels = extract_coordinates(content, label_only=True)
 
