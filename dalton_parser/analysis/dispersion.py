@@ -122,6 +122,9 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
 
     if atomic_moment_order >= 1:
         u1_d = u_d[:, 0]
+        u2_d = u_d[:, 1]
+        u3_d = u_d[:, 2]
+        u4_d = u_d[:, 3]
         s1_d = s_d[0]
         vh1_d = vh_d[0, :]
 
@@ -138,6 +141,8 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
         vh1_d = np.reshape(vh1_d, [1, 3 * n_atoms * 3 * n_atoms])
         print(np.shape(u1_d), np.shape(vh1_d))
         approx_d = s1_d * np.outer(u1_d, vh1_d)
+        print("Approximation (dipole):")
+        print(approx_d)
 
     # evaluate approximation
 
@@ -148,9 +153,10 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
 
     if atomic_moment_order >= 1:
         diff_matrix_d = dipole_collapsed - approx_d
-        # print("Difference matrix (dipole):")
-        # print(diff_matrix_d)
+        print("Difference matrix (dipole):")
+        print(diff_matrix_d)
         print("Max difference from dipole svd:", np.max(np.abs(diff_matrix_d)))
+        # max difference in % value:
 
     print(np.reshape(vh1, [n_atoms, n_atoms]))
 
@@ -162,22 +168,20 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
         vh1_d = np.reshape(vh1_d, [3 * n_atoms, 3 * n_atoms])
         print(np.shape(u1_d), np.shape(vh1_d))
 
-    # make test geometry
-    # R_AB = np.zeros((n_atoms, n_atoms))
-    # R_AB[0, 1] = 1.0
-    # R_AB[1, 0] = 1.0
-    # R_AB[0, 2] = 2.0
-    # R_AB[2, 0] = 2.0
-    # R_AB[1, 2] = 1.0
-    # R_AB[2, 1] = 1.0
+        # test for including more SVD values
+        u2_d = np.reshape(u2_d, [3 * n_atoms, 3 * n_atoms])
+        u3_d = np.reshape(u3_d, [3 * n_atoms, 3 * n_atoms])
+        u4_d = np.reshape(u4_d, [3 * n_atoms, 3 * n_atoms])
+        print(np.shape(u2_d), np.shape(u3_d), np.shape(u4_d))
 
     # Calculate real distance using coord dict:
     R_AB = np.zeros((n_atoms, n_atoms))
+    coords = np.zeros((n_atoms, 3))
     for i, dict_i in enumerate(coord_dict):
         for j, dict_j in enumerate(coord_dict):
-            coord_i = np.array([dict_i["x"], dict_i["y"], dict_i["z"]])
-            coord_j = np.array([dict_j["x"], dict_j["y"], dict_j["z"]])
-            R_AB[i, j] = np.linalg.norm(coord_i - coord_j)
+            coords[i, :] = np.array([dict_i["x"], dict_i["y"], dict_i["z"]])
+            coords[j, :] = np.array([dict_j["x"], dict_j["y"], dict_j["z"]])
+            R_AB[i, j] = np.linalg.norm(coords[i, :] - coords[j, :])
 
     print("Interatomic distance matrix R_AB:")
     print(R_AB)
@@ -199,6 +203,22 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
 
     # Same for dipole interaction
     if atomic_moment_order >= 1:
+        T_ij = np.zeros((3, 3, n_atoms, n_atoms))
+        for i in range(n_atoms):
+            for j in range(n_atoms):
+                if i == j:
+                    continue
+                for alpha in range(3):
+                    for beta in range(3):
+                        delta_term = (1.0 if alpha == beta else 0.0) / R_AB[i, j] ** 3
+                        aniso_term = (
+                            -3.0
+                            * (coords[i, alpha] - coords[j, alpha])
+                            * (coords[i, beta] - coords[j, beta])
+                            / R_AB[i, j] ** 5
+                        )
+                        T_ij[alpha, beta, i, j] = delta_term + aniso_term
+
         for i in range(3 * n_atoms):
             for j in range(3 * n_atoms):
                 for k in range(3 * n_atoms):
@@ -210,7 +230,11 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
                         if R_AB[atom_i, atom_j] == 0 or R_AB[atom_k, atom_l] == 0:
                             continue
                         else:
-                            e_disp_d += dipole_C6[i, j, k, l] / (R_AB[atom_i, atom_j] * R_AB[atom_k, atom_l])
+                            e_disp_d += (
+                                dipole_C6[i, j, k, l]
+                                * T_ij[i % 3, j % 3, atom_i, atom_j]
+                                * T_ij[k % 3, l % 3, atom_k, atom_l]
+                            )
 
     # Calculate the AB sum
     sum_AB = 0.0
@@ -227,9 +251,6 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
 
     e_disp_approx1 = s1 * sum_AB * sum_CD
 
-    print("E_disp:", e_disp)
-    print("E_disp_approx:", e_disp_approx1)
-
     # extra approximation
     e_disp_approx2 = 0.0
     for i in range(n_atoms):
@@ -237,7 +258,55 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
             if R_AB[i, j] != 0:
                 e_disp_approx2 += np.sqrt(s1) * u1[i, j] / R_AB[i, j]
 
+    print("E_disp:", e_disp)
+    print("E_disp_approx:", e_disp_approx1)
     print("E_disp_approx2:", e_disp_approx2**2)
+
+    if atomic_moment_order >= 1:
+        sum_AB = 0.0
+        for i in range(3 * n_atoms):
+            for j in range(3 * n_atoms):
+                atom_i = i // 3
+                atom_j = j // 3
+                if R_AB[atom_i, atom_j] == 0:
+                    continue
+                sum_AB += T_ij[i % 3, j % 3, atom_i, atom_j] * u1_d[i, j]
+
+        sum_CD = 0.0
+        for k in range(3 * n_atoms):
+            for l in range(3 * n_atoms):
+                atom_k = k // 3
+                atom_l = l // 3
+                if R_AB[atom_k, atom_l] == 0:
+                    continue
+                sum_CD += T_ij[k % 3, l % 3, atom_k, atom_l] * vh1_d[k, l]
+
+        e_disp_approx1_d = s1_d * sum_AB * sum_CD
+        e_disp_approx2_d = np.zeros((4))
+        for i in range(3 * n_atoms):
+            for j in range(3 * n_atoms):
+                atom_i = i // 3
+                atom_j = j // 3
+                if R_AB[atom_i, atom_j] == 0:
+                    continue
+                # e_disp_approx2_d += np.sqrt(s1_d) * T_ij[i % 3, j % 3, atom_i, atom_j] * u1_d[i, j]
+                e_disp_approx2_d[0] += np.sqrt(s_d[0]) * T_ij[i % 3, j % 3, atom_i, atom_j] * u1_d[i, j]
+                e_disp_approx2_d[1] += np.sqrt(s_d[1]) * T_ij[i % 3, j % 3, atom_i, atom_j] * u2_d[i, j]
+                e_disp_approx2_d[2] += np.sqrt(s_d[2]) * T_ij[i % 3, j % 3, atom_i, atom_j] * u3_d[i, j]
+                e_disp_approx2_d[3] += np.sqrt(s_d[3]) * T_ij[i % 3, j % 3, atom_i, atom_j] * u4_d[i, j]
+
+        for i in range(4):
+            e_disp_approx2_d[i] = e_disp_approx2_d[i] * e_disp_approx2_d[i]
+
+        print("E_disp (dipole):", e_disp_d)
+        print("E_disp_approx (dipole):", e_disp_approx1_d)
+        print("E_disp_approx2 (dipole):", e_disp_approx2_d.sum())
+
+        for i in range(4):
+            tmp = 0.0
+            for j in range(i + 1):
+                tmp += e_disp_approx2_d[j]
+            print("E_disp_approx2_d rank", i, ":", tmp)
 
     return integrated_data
 
