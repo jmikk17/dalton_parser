@@ -156,17 +156,23 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
         print("Difference matrix (dipole):")
         print(diff_matrix_d)
         print("Max difference from dipole svd:", np.max(np.abs(diff_matrix_d)))
-        # max difference in % value:
-
-    print(np.reshape(vh1, [n_atoms, n_atoms]))
 
     u1 = np.reshape(u1, [n_atoms, n_atoms])
     vh1 = np.reshape(vh1, [n_atoms, n_atoms])
 
+    # Print reshaped SVD components
+    print("U1 matrix (charge):")
+    print(u1)
+    print("Vh1 matrix (charge):")
+    print(vh1)
+
     if atomic_moment_order >= 1:
         u1_d = np.reshape(u1_d, [3 * n_atoms, 3 * n_atoms])
         vh1_d = np.reshape(vh1_d, [3 * n_atoms, 3 * n_atoms])
-        print(np.shape(u1_d), np.shape(vh1_d))
+        print("U1 matrix (dipole):")
+        print(u1_d)
+        print("Vh1 matrix (dipole):")
+        print(vh1_d)
 
         # test for including more SVD values
         u2_d = np.reshape(u2_d, [3 * n_atoms, 3 * n_atoms])
@@ -263,25 +269,25 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
     print("E_disp_approx2:", e_disp_approx2**2)
 
     if atomic_moment_order >= 1:
-        sum_AB = 0.0
+        sum_AB_d = 0.0
         for i in range(3 * n_atoms):
             for j in range(3 * n_atoms):
                 atom_i = i // 3
                 atom_j = j // 3
                 if R_AB[atom_i, atom_j] == 0:
                     continue
-                sum_AB += T_ij[i % 3, j % 3, atom_i, atom_j] * u1_d[i, j]
+                sum_AB_d += T_ij[i % 3, j % 3, atom_i, atom_j] * u1_d[i, j]
 
-        sum_CD = 0.0
+        sum_CD_d = 0.0
         for k in range(3 * n_atoms):
             for l in range(3 * n_atoms):
                 atom_k = k // 3
                 atom_l = l // 3
                 if R_AB[atom_k, atom_l] == 0:
                     continue
-                sum_CD += T_ij[k % 3, l % 3, atom_k, atom_l] * vh1_d[k, l]
+                sum_CD_d += T_ij[k % 3, l % 3, atom_k, atom_l] * vh1_d[k, l]
 
-        e_disp_approx1_d = s1_d * sum_AB * sum_CD
+        e_disp_approx1_d = s1_d * sum_AB_d * sum_CD_d
         e_disp_approx2_d = np.zeros((4))
         for i in range(3 * n_atoms):
             for j in range(3 * n_atoms):
@@ -300,13 +306,32 @@ def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: l
 
         print("E_disp (dipole):", e_disp_d)
         print("E_disp_approx (dipole):", e_disp_approx1_d)
-        print("E_disp_approx2 (dipole):", e_disp_approx2_d.sum())
+        # print("E_disp_approx2 (dipole):", e_disp_approx2_d.sum())
 
         for i in range(4):
             tmp = 0.0
             for j in range(i + 1):
                 tmp += e_disp_approx2_d[j]
-            print("E_disp_approx2_d rank", i, ":", tmp)
+            print("E_disp_approx2 (dipole) i=", i + 1, ":", tmp)
+
+    # Test rescaling C2 with sum_cd
+    # Essentially mimic E = sum_AB (C2/R_AB) by writing each C2 = s1 * u1_AB * sum_CD (vh1_CD / R_CD)
+    # But this kills the classic 1/R^6?
+
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            u1[i, j] = s1 * u1[i, j] * sum_CD
+
+    print("Rescaled U1 matrix (charge):")
+    print(u1)
+
+    sum_test = 0.0
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            if R_AB[i, j] != 0:
+                sum_test += u1[i, j] / R_AB[i, j]
+
+    print("Test sum:", sum_test)
 
     return integrated_data
 

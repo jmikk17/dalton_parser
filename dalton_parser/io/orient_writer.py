@@ -14,13 +14,13 @@ ORIENT_HEADER_TEMPLATE = (
 
 # Matrix dimensions for different atomic moment orders
 # Each side runs from charge (0) to quadrupole (2), giving 8x8 total
-MATRIX_SIZE = 8
+MATRIX_SIZE = 9
 
 # Active region sizes for different ranks
 ACTIVE_REGION_SIZE = {
     0: 1,  # Only [0,0] element
     1: 4,  # Inner 4x4
-    2: 8,  # Full 8x8
+    2: 9,  # Full 9x9
 }
 
 # Threshold for floating point precision issues
@@ -153,7 +153,7 @@ def write_c6(c6_dict: dict, labels: list, atomic_moment_order: int, output_file:
 
                 # Write seperate files from 0 up to atomic_moment_order
                 for rank in range(atomic_moment_order + 1):
-                    header = orient_header(site1, site2, idx1, idx2, freq_formatted, rank)
+                    header = orient_header(site1, site2, idx1, idx2, freq_formatted, 2)
                     file_handle = file_handles[rank]
 
                     file_handle.write(header + "\n")
