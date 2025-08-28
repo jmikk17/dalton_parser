@@ -22,6 +22,10 @@ FREQ_SQ_LIST = [
     -1.4306370e03,
 ]
 
+# Weights include 1/2pi or hbar/2pi, so should be multiplied by 6 for getting isotropic?
+# See SI of https://doi.org/10.1039/C7CP02399E for factor of 6
+# Looks like it's dipole-dipole specific?
+
 WEIGHT_LIST = [
     0.000000000,
     0.002723378,
