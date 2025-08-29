@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .analysis.alpha import alpha_calc
-from .analysis.dispersion import integrate_c6, pade_approx
+from .analysis.dispersion import dispersion_testing, dispersion_testing_old, pade_approx
 from .config import get_file_names
 from .io.file_operations import read_file
 from .io.orient_writer import write_c6
@@ -147,7 +147,8 @@ def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
     if not imaginary_dict:
         sys.exit("Error: No C6 data found")
 
-    integrate_c6(full_response, operator_to_idx, coord_list, atmmom)
+    dispersion_testing(full_response, operator_to_idx, coord_list, atmmom)
+    # dispersion_testing_old(full_response, operator_to_idx, coord_list, atmmom)
 
     labels = extract_coordinates(content, label_only=True)
 

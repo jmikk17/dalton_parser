@@ -2,6 +2,7 @@
 
 import re
 import sys
+import scipy.optimize
 
 from dalton_parser.utils.helpers import print_non_zero_matrix_elements
 
@@ -40,8 +41,98 @@ WEIGHT_LIST = [
     15.5845986,
 ]
 
+DEBUG = True
 
-def integrate_c6(full_response: np.ndarray, operator_to_idx: dict, coord_dict: list[dict], atomic_moment_order: int):
+
+def dispersion_testing(
+    full_response: np.ndarray,
+    operator_to_idx: dict,
+    coord_dict: list[dict],
+    atomic_moment_order: int,
+) -> None:
+    """Perform dispersion testing on the full response matrix.
+
+    Args:
+        full_response (np.ndarray): Response matrix of n_labels by n_labels by n_freq
+        operator_to_idx (dict): Mapping of operator labels to their indices
+        coord_dict (list[dict]): List of coordinate dictionaries for each atom
+        atomic_moment_order (int): Order of atomic moments to consider
+    """
+    # Define dimensions
+    n_atoms = len(coord_dict)
+    n_tot_labels = len(operator_to_idx)
+    n_freq = len(WEIGHT_LIST)
+
+    if DEBUG:
+        print("Dimensions of response input:", full_response.shape)
+
+    # Integrate C coefficients, currently for one molecule
+    integrated_data = integrate_c6(full_response, n_tot_labels, n_freq)
+
+    if DEBUG:
+        print("Dimension of 4-index integrated data:", integrated_data.shape)
+
+    # Reshape index 1 and 3 into 1, and 2 and 4 into 2
+    # TODO: this reshaping should be checked again if we use two different molecules
+    reshaped_data_old = integrated_data.transpose(0, 1, 2, 3).reshape(n_tot_labels**2, n_tot_labels**2)
+    reshaped_data_new = integrated_data.transpose(0, 2, 1, 3).reshape(n_tot_labels**2, n_tot_labels**2)
+
+    if DEBUG:
+        print("Dimension of reshaped data (old):", reshaped_data_old.shape)
+        print("Dimension of reshaped data (new):", reshaped_data_new.shape)
+
+    u_old, s_old, vh_old = np.linalg.svd(reshaped_data_old)
+
+    if DEBUG:
+        print("SVD U matrix dimensions:", u_old.shape)
+        print("SVD Vh matrix dimensions:", vh_old.shape)
+        print("SVD U and Vh max difference:", np.max(np.abs(u_old - vh_old.transpose())))
+        print("SVD singular values:", s_old)
+        print("First singular value in % of total:", s_old[0] / np.sum(s_old) * 100)
+
+    # Test if we can further separate the components as C_ab = C_a * C_b
+
+    approx_data = u_old[:, 0].reshape(n_tot_labels, n_tot_labels)
+
+    if DEBUG:
+        print("Dimension of approximated data:", approx_data.shape)
+
+    u_old2, s_old2, vh_old2 = np.linalg.svd(approx_data)
+
+    if DEBUG:
+        print("SVD U matrix dimensions (2nd):", u_old2.shape)
+        print("SVD Vh matrix dimensions (2nd):", vh_old2.shape)
+        print("SVD U and Vh max difference (2nd):", np.max(np.abs(u_old2 - vh_old2.transpose())))
+        print("SVD singular values (2nd):", s_old2)
+        print("First singular value in % of total (2nd):", s_old2[0] / np.sum(s_old2) * 100)
+
+    u_new, s_new, vh_new = np.linalg.svd(reshaped_data_new)
+
+    if DEBUG:
+        print("SVD U matrix dimensions (new):", u_new.shape)
+        print("SVD Vh matrix dimensions (new):", vh_new.shape)
+        print("SVD U and Vh max difference (new):", np.max(np.abs(u_new - vh_new.transpose())))
+        print("SVD singular values (new):", s_new)
+        print("First singular value in % of total (new):", s_new[0] / np.sum(s_new) * 100)
+
+
+def integrate_c6(full_response: np.ndarray, n_tot_labels: int, n_freq: int) -> np.ndarray:
+    integrated_data = np.zeros((n_tot_labels, n_tot_labels, n_tot_labels, n_tot_labels))
+
+    for i in range(n_tot_labels):
+        for j in range(n_tot_labels):
+            for k in range(n_tot_labels):
+                for l in range(n_tot_labels):
+                    for freq in range(n_freq):
+                        integrated_data[i, j, k, l] += (
+                            full_response[i, j, freq] * full_response[k, l, freq] * WEIGHT_LIST[freq]
+                        )
+    return integrated_data
+
+
+def dispersion_testing_old(
+    full_response: np.ndarray, operator_to_idx: dict, coord_dict: list[dict], atomic_moment_order: int
+):
     """Numerically integrate C6 data from full response matrix using set weights from WEIGHT_LIST.
 
     C6 coeficients are defined as C_ABCD= int(0 to infty) alpha_AB(omega)*alpha_CD(omega) domega
