@@ -72,8 +72,9 @@ def dispersion_testing(
     if DEBUG:
         print("Dimension of 4-index integrated data:", integrated_data.shape)
 
-    # Reshape index 1 and 3 into 1, and 2 and 4 into 2
-    # TODO: this reshaping should be checked again if we use two different molecules
+    # Reshape index
+    # "old" is the "wrong" way, which gives good results, but doesn't simplify disp. calculations
+    # "new" is the "right" way, which gives a worse description
     reshaped_data_old = integrated_data.transpose(0, 1, 2, 3).reshape(n_tot_labels**2, n_tot_labels**2)
     reshaped_data_new = integrated_data.transpose(0, 2, 1, 3).reshape(n_tot_labels**2, n_tot_labels**2)
 
@@ -91,6 +92,7 @@ def dispersion_testing(
         print("First singular value in % of total:", s_old[0] / np.sum(s_old) * 100)
 
     # Test if we can further separate the components as C_ab = C_a * C_b
+    # If we can, we can still apply the old way to simplify the description
 
     approx_data = u_old[:, 0].reshape(n_tot_labels, n_tot_labels)
 
