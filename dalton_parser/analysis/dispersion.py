@@ -117,6 +117,24 @@ def dispersion_testing(
         print("SVD singular values (new):", s_new)
         print("First singular value in % of total (new):", s_new[0] / np.sum(s_new) * 100)
 
+    # Create the N by N approximation
+    u_old = np.sqrt(s_old[0]) * u_old[:, 0].reshape(n_tot_labels, n_tot_labels)
+    above = 0
+    below = 0
+    thresh = 1e-3
+    for i in range(u_old.shape[0]):
+        for j in range(u_old.shape[1]):
+            if abs(u_old[i, j]) < thresh:
+                below += 1
+            else:
+                above += 1
+    if DEBUG:
+        print("Total number of values:", above + below)
+        print(f"Number of values above {thresh}:", above)
+        print("In procentage:", above / (above + below) * 100)
+        print(f"Number of values below {thresh}:", below)
+        print("In procentage:", below / (above + below) * 100)
+
 
 def integrate_c6(full_response: np.ndarray, n_tot_labels: int, n_freq: int) -> np.ndarray:
     integrated_data = np.zeros((n_tot_labels, n_tot_labels, n_tot_labels, n_tot_labels))
