@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Literal, overload
 
 import numpy as np
 
@@ -26,15 +27,24 @@ def check_file_extension(file_path: str, ext: str) -> bool:
     return file_path.lower().endswith(ext)
 
 
+@overload
+def read_file(file_path: str, ext: Literal[".out"]) -> str: ...
+
+
+@overload
+def read_file(file_path: str, ext: Literal[".json"]) -> dict: ...
+
+
 def read_file(file_path: str, ext: str) -> str | dict:
     """Read the content of the file.
 
     Args:
         file_path (str): Path to the file to read
-        ext (str): Extension of the file
+        ext (str): Extension of the file (".out" or ".json")
 
     Returns:
-        str: Content of the file
+        str: Content of the file when ext is ".out"
+        dict: Content of the file when ext is ".json"
 
     """
     try:

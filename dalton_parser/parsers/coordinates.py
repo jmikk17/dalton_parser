@@ -15,7 +15,7 @@ def extract_coordinates(content: str, *, label_only: bool = False) -> list[dict[
         label_only (bool): If True, only the atom labels including index are returned. Default is False.
 
     Returns:
-        list: List of dictionaries containing atom labels and coordinates
+        list: List of dictionaries. One dictionary per atom, containing atom label, index, x, y, and z coordinates.
 
     """
     coord_section = re.search(
@@ -37,7 +37,11 @@ def extract_coordinates(content: str, *, label_only: bool = False) -> list[dict[
 
     for i, match in enumerate(re.finditer(coord_pattern, coord_text)):
         atom_label_with_number = match.group(1)
-        atom_label = re.match(r"([A-Za-z]+)", atom_label_with_number).group(1)
+        atom_label = re.match(r"([A-Za-z]+)", atom_label_with_number)
+        if atom_label is None:
+            sys.exit("Error: Atom label not recognized")
+        else:
+            atom_label = atom_label.group(1)
         x = float(match.group(3))
         y = float(match.group(5))
         z = float(match.group(7))
@@ -50,15 +54,17 @@ def extract_coordinates(content: str, *, label_only: bool = False) -> list[dict[
     return coords
 
 
-def combine_coords_with_charges(coords: dict, charges: list) -> dict:
+def combine_coords_with_charges(coords: list[dict[str, float]], charges: list[float]) -> list[dict[str, float]]:
     """Insert charges into the coordinate dictionary.
 
     Args:
-        coords (dict): Dictionary containing atom labels and coordinates
-        charges (list): List of charges
+        coords (list[dict]): List of dictionaries. One dictionary per atom, containing atom label, index,
+        x, y, and z coordinates.
+        charges (list): List of MBIS charges
 
     Returns:
-        dict: Dictionary containing atom labels, coordinates and charges
+        list[dict]: List of dictionaries. One dictionary per atom, containing atom label, index,
+        x, y, z coordinates, and MBIS charge.
 
     """
     for i, atom in enumerate(coords):
@@ -68,7 +74,7 @@ def combine_coords_with_charges(coords: dict, charges: list) -> dict:
     return coords
 
 
-def read_coords(content: str) -> list:
+def read_coords(content: dict) -> list:
     """Extract coordinates from JSON file.
 
     Args:

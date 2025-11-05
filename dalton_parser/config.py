@@ -19,7 +19,7 @@ def setup_parser() -> argparse.Namespace:
         "--mode",
         choices=["parse", "alpha", "c6", "all"],
         default="all",
-        help="Processing mode: parse=parse only, alpha=analyze existing JSON, c6=extract C6 data, all=parse+analyze (default: %(default)s)"
+        help="Processing mode: parse=parse only, alpha=analyze existing JSON, c6=extract C6 data, all=parse+analyze (default: %(default)s)",
     )
     parser.add_argument("input_file", help="Input file to process")
     parser.add_argument("-o", "--output", help="Output file (default: input_file.json)")
@@ -49,4 +49,4 @@ def get_file_names(args: argparse.Namespace) -> tuple[str, str]:
     elif args.mode == "alpha" and not check_file_extension(args.input_file, ".json"):
         sys.exit("Error: Input file must be a JSON file (.json)")
 
-    return args.input_file, args.output
+    return str(args.input_file), str(args.output)

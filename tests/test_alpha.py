@@ -66,7 +66,7 @@ def test_alpha(basename: str, cc: bool, tmp_path: Path) -> None:
     subprocess.run(
         [
             sys.executable,
-            str(PROJECT_ROOT / "main.py"),
+            str(PROJECT_ROOT / "run_parser.py"),
             str(dalton_file),
             "--o",
             str(json_file),

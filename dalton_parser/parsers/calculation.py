@@ -14,7 +14,7 @@ def extract_calculation_info(content: str) -> dict:
         dict: Dictionary containing calculation type information
 
     Todo:
-        Add extraction of print level, so we can quit gracefully if too low for C6 output
+        Add extraction of print level, so we can quit gracefully if too low for C6 or coords
 
     """
     result = {}
@@ -26,7 +26,9 @@ def extract_calculation_info(content: str) -> dict:
         sys.exit("Error: No atomic moment order found")
 
     result.update(extract_wave_function_type(content))
-    result.update(extract_wave_function_info(content, result.get("wave_function")))
+    wave_function = result.get("wave_function")
+    if wave_function is not None:
+        result.update(extract_wave_function_info(content, wave_function))
     result.update(extract_other_info(content))
 
     return result

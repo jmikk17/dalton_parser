@@ -6,10 +6,8 @@ import sys
 import warnings
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from .analysis.alpha import alpha_calc
-from .analysis.dispersion import dispersion_testing, dispersion_testing_old, pade_approx
+from .analysis.dispersion import dispersion_testing, pade_approx
 from .config import get_file_names
 from .io.file_operations import read_file
 from .io.orient_writer import write_c6
@@ -26,14 +24,14 @@ if TYPE_CHECKING:
     import argparse
 
 
-def process_files(args: argparse.Namespace) -> dict | None:
+def process_files(args: argparse.Namespace) -> tuple[dict | None, str | None]:
     """Process input files based on command line arguments.
 
     Args:
         args: Parsed command line arguments
 
     Returns:
-        dict: Processing results or None for C6 processing
+        tuple[dict | None, str | None]: Processing results and output file name
 
     """
     input_file, output_file = get_file_names(args)
@@ -41,7 +39,7 @@ def process_files(args: argparse.Namespace) -> dict | None:
     if args.mode in ("parse", "all"):
         content = read_file(input_file, ".out")
         result = parse_dalton_output(content)
-        if args.mode == "all":
+        if args.mode == "all" and result is not None:
             result.update(alpha_analysis(result))
         return result, output_file
     if args.mode == "alpha":
@@ -49,6 +47,7 @@ def process_files(args: argparse.Namespace) -> dict | None:
         result = alpha_analysis(content)
         return result, output_file
     if args.mode == "c6":
+        warnings.warn("Dispersion output is under development", stacklevel=1)
         content = read_file(input_file, ".out")
         alpha_imaginary_analysis(content, output_file)
         return None, None
@@ -72,10 +71,14 @@ def parse_dalton_output(content: str) -> None | dict:
 
     coord_dict = extract_coordinates(content)
     if not coord_dict:
+        # For now we exit, but coordinates are grepped from a place where they only appear for small molecules
+        # In our development Dalton coordinates are always printed
+        # Maybe guaranteed with some print-level in Dalton?
         sys.exit("Error: No coordinates found")
 
     charge_list = extract_1st_order_prop(content)
     if not charge_list:
+        # Only do warning here since old output files don't have charges
         warnings.warn("No charges found", stacklevel=1)
         main_dict.update({"atoms": coord_dict})
     else:
@@ -117,7 +120,7 @@ def alpha_analysis(content: dict) -> dict:
     return alpha_calc(property_df, geometry, atmmom)
 
 
-def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
+def alpha_imaginary_analysis(content: str, output_file: str) -> dict | None:
     """Extract alpha(i omega) data from Dalton output file, and write as orient fmtB polarizability file.
 
     Args:
@@ -138,7 +141,7 @@ def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
     if not wave_function:
         sys.exit("Error: No wave function type found")
     if wave_function["wave_function"] != "CC":
-        # TODO This requires a min print level of 5 in the Dalton input file
+        # TODO: This requires a min print level of 5 in the Dalton input file
         imaginary_dict, full_response, operator_to_idx = extract_imaginary(content, atmmom, len(coord_list), n_freq=11)
     elif wave_function["wave_function"] == "CC":
         sys.exit("Error: C6 data extraction is not supported for CC wave functions yet")
@@ -148,7 +151,6 @@ def alpha_imaginary_analysis(content: str, output_file: str) -> dict:
         sys.exit("Error: No C6 data found")
 
     dispersion_testing(full_response, operator_to_idx, coord_list, atmmom)
-    # dispersion_testing_old(full_response, operator_to_idx, coord_list, atmmom)
 
     labels = extract_coordinates(content, label_only=True)
 

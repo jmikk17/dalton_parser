@@ -1,5 +1,7 @@
 """Alpha analysis for Dalton polarizability calculations."""
 
+import sys
+
 import numpy as np
 import pandas as pd
 
@@ -22,7 +24,7 @@ def alpha_calc(df: pd.DataFrame, geo: list, atmmom: int) -> dict:
     alpha_ab = np.zeros((3, 3))
 
     for _index, row in df.iterrows():
-        val = row["value"]
+        val = float(row["value"])
         if row["xyz1"] == "00" and row["xyz2"] == "00":
             alpha_00 = update_alpha(alpha_00, val, row, geo, a_type="00")
             if atmmom == 0:
@@ -59,17 +61,17 @@ def update_alpha(alpha: np.ndarray, val: float, row: pd.Series, geo: list, a_typ
                 alpha[i, j] += val * coord1[i] * coord2[j]
     elif a_type == "0b":
         coord = geo[row["index1"] - 1]
-        comp = get_component(row["xyz2"])
+        comp = get_component(str(row["xyz2"]))
         for i in range(3):
             alpha[i, comp] += val * coord[i]
     elif a_type == "a0":
         coord = geo[row["index2"] - 1]
-        comp = get_component(row["xyz1"])
+        comp = get_component(str(row["xyz1"]))
         for i in range(3):
             alpha[comp, i] += val * coord[i]
     elif a_type == "ab":
-        comp1 = get_component(row["xyz1"])
-        comp2 = get_component(row["xyz2"])
+        comp1 = get_component(str(row["xyz1"]))
+        comp2 = get_component(str(row["xyz2"]))
         alpha[comp1, comp2] += val
     return alpha
 
@@ -85,7 +87,10 @@ def get_component(xyz: str) -> int:
 
     """
     components = {"0x": 0, "0y": 1, "0z": 2}
-    return components.get(xyz)
+    xyz_index = components.get(xyz)
+    if xyz_index is not None:
+        return xyz_index
+    sys.exit("Error: Couldn't match xyz component")
 
 
 def format_alpha_result(
